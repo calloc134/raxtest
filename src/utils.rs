@@ -13,19 +13,19 @@ use types::{InitStep, JsonMap, TestConfig, TestStep};
 // テスト構成ファイルの構造体を生成する関数
 pub fn gen_struct(index_path: String) -> Result<(TestConfig, JsonMap), Box<dyn std::error::Error>> {
     // テスト構成ファイルを読み込む
-    println!("[*] Loading test config file...");
+    println!("[* ] Loading test config file...");
     let config_file = File::open(&index_path)?;
     let reader = BufReader::new(config_file);
     let test_config: TestConfig = serde_yaml::from_reader(reader)?;
 
     // データファイルのパス指定が正しいかチェックする
-    println!("[*] Checking data file path...");
+    println!("[* ] Checking data file path...");
     if !test_config.data.starts_with("json://") {
         return Err("Invalid data file path".into());
     }
 
     // データの格納されているjsonファイルを読み込む
-    println!("[*] Loading json data file...");
+    println!("[* ] Loading json data file...");
     let data_file = File::open(test_config.data.trim_start_matches("json://"))?;
     let reader = BufReader::new(data_file);
     let json_data: JsonMap = serde_json::from_reader(reader)?;
@@ -51,7 +51,7 @@ pub async fn run_init(
         });
 
     // HTTPクライアントを初期化
-    println!("[*] Initializing HTTP client...");
+    println!("[* ] Initializing HTTP client...");
     let client = Client::new();
 
     let tasks: Vec<JoinHandle<Result<Response, Error>>> = init
@@ -62,7 +62,7 @@ pub async fn run_init(
 
             // アクセスするURLを作成する
             let url = format!("{}/{}", base_url, init_step.path);
-            println!("[*] Accessing {}...", url);
+            println!("[* -{name}] Accessing {}...", url, name = init_step.name);
 
             // リクエストクライアントの作成
             let mut request = client_clone.request(
@@ -74,8 +74,9 @@ pub async fn run_init(
             if let Some(body) = &init_step.body {
                 let init_data = json_data.get(body).unwrap().get("body").unwrap();
                 println!(
-                    "[*] Request body: {}",
-                    to_string_pretty(&init_data).unwrap()
+                    "[* -{name}] Request body: {}",
+                    to_string_pretty(&init_data).unwrap(),
+                    name = init_step.name
                 );
                 request = request.json(&init_data);
             }
@@ -95,12 +96,12 @@ pub async fn run_init(
             let header = &response.headers().get("set-cookie").unwrap();
             *value = header.to_str().unwrap().to_string();
 
-            println!("[b] Cookie: {}", value);
+            println!("[# -{name}] Cookie: {}", value, name = init[i].name);
         }
         // レスポンスボディを表示する
         let body = response.text().await?;
-        println!("[b] Response body: {}", body);
-        println!("[b] Init step {} completed", init[i].name);
+        println!("[# -{name}] Response body: {}", body, name = init[i].name);
+        println!("[# -{name}] Init step {} completed", name = init[i].name);
         println!("")
     }
 
@@ -140,7 +141,11 @@ pub async fn run_test(
                         }
                     });
 
-                println!("[*] Query: {}", to_string_pretty(&test_query).unwrap());
+                println!(
+                    "[* -{name}] Query: {}",
+                    to_string_pretty(&test_query).unwrap(),
+                    name = test_step.name
+                );
                 replaced_string.to_string()
             // クエリの指定がない場合は、パスをそのまま使用する
             } else {
@@ -149,7 +154,7 @@ pub async fn run_test(
 
             // アクセスするURLを作成する
             let url = format!("{}/{}", base_url, rewrite_path);
-            println!("[*] Accessing {}...", url);
+            println!("[* -{name}] Accessing {}...", url, name = test_step.name);
 
             // リクエストクライアントの作成
             let mut request = client_clone.request(
@@ -163,8 +168,9 @@ pub async fn run_test(
                 let test_body = &json_data.get(body).unwrap().get("body").unwrap();
                 request = request.json(test_body);
                 println!(
-                    "[*] Request body: {}",
-                    to_string_pretty(&test_body).unwrap()
+                    "[* -{name}] Request body: {}",
+                    to_string_pretty(&test_body).unwrap(),
+                    name = test_step.name
                 );
             }
 
@@ -173,7 +179,7 @@ pub async fn run_test(
                 println!("hogehoge Password required");
 
                 let cookie = cookie_map.get(login).unwrap();
-                println!("[*] Cookie: {}", cookie);
+                println!("[* -{name}] Cookie: {}", cookie, name = test_step.name);
 
                 request = request.header("Cookie", cookie);
             }
@@ -191,22 +197,39 @@ pub async fn run_test(
         let (index, response) = task.await??;
         let status = response.status();
 
-        println!("[*] Status: {}", status);
-        println!("[*] Headers: {:?}", response.headers());
-        println!("[*] Response body: {}", response.text().await?);
+        println!("[* -{name}] Status: {}", status, name = steps[index].name);
+        println!(
+            "[* -{name}] Headers: {:?}",
+            response.headers(),
+            name = steps[index].name
+        );
+        println!(
+            "[* -{name}] Response body: {}",
+            response.text().await?,
+            name = steps[index].name
+        );
 
         if status == steps[index].expect_status {
-            println!("[b] Test passed!");
+            println!("[# -{name}] Test passed!", name = steps[index].name);
         } else if status == StatusCode::OK {
-            println!("[b] Test failed, but status is 200 OK");
+            println!(
+                "[# -{name}] Test failed, but status is 200 OK",
+                name = steps[index].name
+            );
         } else {
             println!(
-                "[!] Test failed! (status: {}, expect status: {})",
-                status, steps[index].expect_status
+                "[! -{name}] Test failed! (status: {}, expect status: {})",
+                status,
+                steps[index].expect_status,
+                name = steps[index].name
             );
         }
 
-        println!("[b] Test step {} completed", steps[index].name);
+        println!(
+            "[# -{name}] Test step {} completed",
+            steps[index].name,
+            name = steps[index].name
+        );
         println!("")
     }
 
