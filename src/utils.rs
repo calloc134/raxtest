@@ -8,7 +8,7 @@ use tokio::task::JoinHandle;
 
 use serde_json::{to_string_pretty, to_writer_pretty, Value};
 
-use anyhow::bail;
+use anyhow::anyhow;
 
 // とりあえず, mainから呼べるようにpubをつけている. いい方法かは不明
 pub mod types;
@@ -27,9 +27,14 @@ pub fn gen_struct(index_path: String) -> RaxResult<(TestConfig, JsonMap)> {
 
     // データファイルのパス指定が正しいかチェックする
     println!("[* ] Checking data file path...");
+
     if !test_config.data.starts_with("json://") {
-        bail!("Invalid data file path");
+        return Err(anyhow!("Invalid data file path"));
+        // anyhowマクロで簡単にanyuhowのエラーを返せる
+        // bail!(hoge) という書き方もある
         // bail!(hoge) は return Err(anyhow!(hoge)) と同じ意味;
+        // ensureマクロを使うとifを使わずに書ける
+        // ensure!(test_config.data.starts_with("json://"),"Invalid data file path");
     }
 
     // データの格納されているjsonファイルを読み込む
