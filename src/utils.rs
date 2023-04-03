@@ -1,9 +1,10 @@
 use regex::Regex;
+use reqwest::{Client, Error, Response};
 use std::fs::File;
 use std::io::BufReader;
 use std::{collections::HashMap, str::FromStr};
+use tokio::task::JoinHandle;
 
-use reqwest::blocking::Client;
 use serde_json::Value;
 
 mod types;
@@ -34,7 +35,7 @@ pub fn gen_struct(index_path: String) -> Result<(TestConfig, JsonMap), Box<dyn s
 // 引数：base_url: &String -> テスト対象のベースURL。不変参照
 //       init: Vec<InitStep> -> initステップの構造体の配列。所有権を移動する
 //       json_data: &JsonMap -> jsonデータの連想配列。不変参照
-pub fn run_init(
+pub async fn run_init(
     base_url: &String,
     init: Vec<InitStep>,
     json_data: &JsonMap,
@@ -49,31 +50,43 @@ pub fn run_init(
     // HTTPクライアントを初期化
     let client = Client::new();
 
-    // initステップを実行する
-    for init_step in init {
-        // アクセスするURLを作成する
-        let url = format!("{}/{}", base_url, init_step.path);
+    let tasks: Vec<JoinHandle<Result<Response, Error>>> = init
+        .iter()
+        .map(|init_step| {
+            // クライアントをクローンする
+            let client_clone = client.clone();
 
-        // リクエストクライアントの作成
-        let mut request =
-            client.request(reqwest::Method::from_str(init_step.method.as_str())?, &url);
+            // アクセスするURLを作成する
+            let url = format!("{}/{}", base_url, init_step.path);
 
-        // リクエストボディがある場合は、jsonデータよりリクエストボディを設定する
-        if let Some(body) = init_step.body {
-            let init_data = json_data.get(&body).unwrap().get("body").unwrap();
-            request = request.json(&init_data);
-        }
+            // リクエストクライアントの作成
+            let mut request = client_clone.request(
+                reqwest::Method::from_str(init_step.method.as_str()).unwrap(),
+                &url,
+            );
 
-        // リクエストを送信
-        let response = request.send()?;
+            // リクエストボディがある場合は、jsonデータよりリクエストボディを設定する
+            if let Some(body) = &init_step.body {
+                let init_data = json_data.get(body).unwrap().get("body").unwrap();
+                request = request.json(&init_data);
+            }
+
+            tokio::spawn(async move {
+                // リクエストを送信
+                request.send().await
+            })
+        })
+        .collect();
+
+    for (i, task) in tasks.into_iter().enumerate() {
+        let response = task.await??;
 
         // クッキーをハッシュマップに格納する
-        if let Some(value) = cookie_map.get_mut(init_step.name.as_str()) {
+        if let Some(value) = cookie_map.get_mut(init[i].name.as_str()) {
             *value = response
                 .headers()
-                .get("Set-Cookie")
+                .get("set-cookie")
                 .unwrap()
-                .clone()
                 .to_str()
                 .unwrap()
                 .to_string();
@@ -84,7 +97,7 @@ pub fn run_init(
 }
 
 // テストステップを実行する関数
-pub fn run_test(
+pub async fn run_test(
     base_url: &String,
     steps: Vec<TestStep>,
     json_data: &JsonMap,
@@ -93,8 +106,82 @@ pub fn run_test(
     // HTTPクライアントを初期化
     let client = Client::new();
 
+    let tasks: Vec<JoinHandle<Result<Response, Error>>> = steps
+        .iter()
+        .map(|test_step| {
+            let client_clone = client.clone();
+
+            // クエリの指定がある場合は、jsonデータよりクエリを設定し、URLを書き換える
+            let rewrite_path = if let Some(query) = &test_step.query {
+                let test_query = &json_data.get(query).unwrap().get("query").unwrap();
+                println!("query -> {:?}", test_query);
+
+                // 正規表現をコンパイル
+                let re = Regex::new(r"\{(\w+)\}").unwrap();
+                let replaced_string =
+                    re.replace_all(test_step.path.as_str(), |captures: &regex::Captures| {
+                        let key = &captures[1];
+                        let query_original = test_query.get(key).unwrap();
+                        match query_original {
+                            Value::String(s) => s.clone(),
+                            Value::Number(n) => n.to_string(),
+                            _ => "".to_string(),
+                        }
+                    });
+
+                println!("replaced -> {:?}", replaced_string);
+                replaced_string.to_string()
+            // クエリの指定がない場合は、パスをそのまま使用する
+            } else {
+                test_step.path.clone()
+            };
+
+            // アクセスするURLを作成する
+            let url = format!("{}/{}", base_url, rewrite_path);
+
+            println!("url -> {:?}", url);
+
+            // リクエストクライアントの作成
+            let mut request = client_clone.request(
+                reqwest::Method::from_bytes(test_step.method.as_bytes())
+                    .unwrap_or(reqwest::Method::GET),
+                &url,
+            );
+
+            // リクエストボディがある場合は、jsonデータよりリクエストボディを設定する
+            if let Some(body) = &test_step.body {
+                let test_body = &json_data.get(body).unwrap().get("body").unwrap();
+                println!("body -> {:?}", test_body);
+                request = request.json(test_body);
+            }
+
+            // ログインが必要な場合は、クッキーを設定する
+            if let Some(login) = &test_step.login {
+                println!("hogehoge Password required");
+
+                let cookie = cookie_map.get(login).unwrap();
+                println!("cookie -> {:?}", cookie);
+
+                request = request.header("Cookie", cookie);
+            }
+
+            tokio::spawn(async move { return request.send().await })
+        })
+        .collect();
+
+    for task in tasks {
+        let response = task.await??;
+
+        println!("status -> {:?}", response.status());
+        println!("headers -> {:?}", response.headers());
+        println!("text -> {:?}", response.text().await?);
+    }
+
     // テストステップを実行する
+    /*
     for test_step in steps {
+        let client_clone = client.clone();
+
         // クエリの指定がある場合は、jsonデータよりクエリを設定し、URLを書き換える
         let rewrite_path = if let Some(query) = test_step.query {
             let test_query = &json_data.get(&query).unwrap().get("query").unwrap();
@@ -152,7 +239,7 @@ pub fn run_test(
 
         println!("text -> {:?}", response.text()?);
 
-        /*
+
         if response.status() != test_step.expect_status {
             println!("Error: status code is not expected");
         } else if response.status() == test_step.expect_status {
@@ -160,8 +247,8 @@ pub fn run_test(
         } else {
             return Err("Error: 予期せぬエラー".into());
         }
-        */
     }
+    */
 
     Ok(())
 }
