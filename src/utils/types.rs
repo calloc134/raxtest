@@ -54,4 +54,5 @@ pub type JsonMap = HashMap<String, HashMap<String, HashMap<String, Value>>>;
 
 // anyhowを使用したResult型のエイリアス
 // 名前は適当につけているので、好きな名前に変更しても良い
+// anyhow::Result<T> は Result<T, anyhow::Error> と同じ意味なので，そっちのほうが良いかも
 pub type RaxResult<T> = Result<T, Error>;
