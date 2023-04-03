@@ -32,6 +32,21 @@ pub struct TestStep {
     pub login: Option<String>,
 }
 
+// テストの結果を格納する構造体を定義する
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TestResult {
+    pub name: String,
+    pub status: String,
+    pub duration: f64,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ResultData {
+    pub base_url: String,
+    pub results: Vec<TestResult>,
+}
+
 // Jsonの内容を格納する連想配列を定義する
 // 引数：String -> jsonのキー。所有権を移動する
 pub type JsonMap = HashMap<String, HashMap<String, HashMap<String, Value>>>;

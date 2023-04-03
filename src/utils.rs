@@ -1,14 +1,17 @@
 use regex::Regex;
-use reqwest::{Client, Error, Response, StatusCode};
+use reqwest::{Client, Error, Response};
 use std::fs::File;
 use std::io::BufReader;
+use std::time::Instant;
 use std::{collections::HashMap, str::FromStr};
 use tokio::task::JoinHandle;
 
-use serde_json::{to_string_pretty, Value};
+use serde_json::{to_string_pretty, to_writer_pretty, Value};
 
 mod types;
-use types::{InitStep, JsonMap, TestConfig, TestStep};
+use types::{InitStep, JsonMap, ResultData, TestConfig, TestStep};
+
+use self::types::TestResult;
 
 // テスト構成ファイルの構造体を生成する関数
 pub fn gen_struct(index_path: String) -> Result<(TestConfig, JsonMap), Box<dyn std::error::Error>> {
@@ -114,11 +117,11 @@ pub async fn run_test(
     steps: Vec<TestStep>,
     json_data: &JsonMap,
     cookie_map: &HashMap<String, String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<TestResult>, Box<dyn std::error::Error>> {
     // HTTPクライアントを初期化
     let client = Client::new();
 
-    let tasks: Vec<JoinHandle<Result<(usize, Response), Error>>> = steps
+    let tasks: Vec<JoinHandle<Result<(usize, Response, Instant), Error>>> = steps
         .iter()
         .enumerate()
         .map(|(index, test_step)| {
@@ -186,15 +189,18 @@ pub async fn run_test(
 
             tokio::spawn(async move {
                 return match request.send().await {
-                    Ok(response) => Ok((index, response)),
+                    Ok(response) => Ok((index, response, Instant::now())),
                     Err(e) => Err(e.into()),
                 };
             })
         })
         .collect();
 
+    let mut results: Vec<TestResult> = Vec::new();
+
     for task in tasks {
-        let (index, response) = task.await??;
+        let (index, response, start_time) = task.await??;
+        let elapsed_time = start_time.elapsed();
         let status = response.status();
 
         println!("[* -{name}] Status: {}", status, name = steps[index].name);
@@ -208,14 +214,20 @@ pub async fn run_test(
             response.text().await?,
             name = steps[index].name
         );
+        println!(
+            "[* -{name}] Elapsed time: {}ms",
+            elapsed_time.as_millis(),
+            name = steps[index].name
+        );
 
         if status == steps[index].expect_status {
             println!("[# -{name}] Test passed!", name = steps[index].name);
-        } else if status == StatusCode::OK {
-            println!(
-                "[# -{name}] Test failed, but status is 200 OK",
-                name = steps[index].name
-            );
+            results.push(TestResult {
+                name: steps[index].name.clone(),
+                status: "success".to_string(),
+                message: "passed".to_string(),
+                duration: elapsed_time.as_secs_f64(),
+            });
         } else {
             println!(
                 "[! -{name}] Test failed! (status: {}, expect status: {})",
@@ -223,6 +235,16 @@ pub async fn run_test(
                 steps[index].expect_status,
                 name = steps[index].name
             );
+
+            results.push(TestResult {
+                name: steps[index].name.clone(),
+                status: "failure".to_string(),
+                message: format!(
+                    "failed (status: {}, expect status: {})",
+                    status, steps[index].expect_status
+                ),
+                duration: elapsed_time.as_secs_f64(),
+            });
         }
 
         println!(
@@ -232,6 +254,29 @@ pub async fn run_test(
         );
         println!("")
     }
+
+    Ok(results)
+}
+
+// テストの結果を出力する関数
+pub fn render_results(
+    base_url: &String,
+    output_json_path: &String,
+    results: Vec<TestResult>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // 書き出すJSONデータを作成する
+    let result_data = ResultData {
+        base_url: base_url.clone(),
+        results: results,
+    };
+
+    println!("[*] Outputting test results...");
+
+    // テスト結果を出力する
+    let output_file = File::create(output_json_path)?;
+    to_writer_pretty(output_file, &result_data)?;
+
+    println!("[*] Test completed!");
 
     Ok(())
 }

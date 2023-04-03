@@ -1,0 +1,29 @@
+{
+  "base_url": "http://localhost",
+  "results": [
+    {
+      "name": "apiall",
+      "status": "success",
+      "duration": 0.000048,
+      "message": "passed"
+    },
+    {
+      "name": "apiProfileUsername",
+      "status": "success",
+      "duration": 0.0113897,
+      "message": "passed"
+    },
+    {
+      "name": "isLogin",
+      "status": "success",
+      "duration": 0.0034016,
+      "message": "passed"
+    },
+    {
+      "name": "PostNewArticle",
+      "status": "failure",
+      "duration": 0.0000487,
+      "message": "failed (status: 400 Bad Request, expect status: 200)"
+    }
+  ]
+}

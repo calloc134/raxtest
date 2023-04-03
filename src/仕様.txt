@@ -158,3 +158,27 @@ fn main() {
 であり、複数のテストに関してはfor文で実行するようにせよ。
 
 また、完成したコードを一行ごとに説明せよ。
+
+
+テスト後のjsonの仕様
+
+{
+    "host": "http://localhost:8080",
+    "duration": 1000,
+    "task_results": {
+        [
+            {
+                "name": "name",
+                "status": "success",
+                "duration": 1000,
+                "message": "success"
+            },
+            {
+                "name": "name",
+                "status": "success",
+                "duration": 1000,
+                "message": "success"
+            },
+        ]
+    }
+}
