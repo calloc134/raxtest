@@ -1,0 +1,19 @@
+{
+    "init": {
+        "body": {
+            "screenName": "johndoe",
+            "password": "Password123@"
+        }
+    },
+    "ProfileUsername": {
+        "query": {
+            "name": "johndoe"
+        }
+    },
+    "Article": {
+        "body": {
+            "title": "こんにちは",
+            "body": "テストより産まれしブログ也。"
+        }
+    }
+}
