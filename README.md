@@ -208,6 +208,9 @@ bodyオプションでは、`body`キーの値を、queryオプションでは�
 テストが成功した場合は、`passed`となります。  
 テストが失敗した場合は、`failed (status: XXX Bad Request, expect status: XXX)`のように、ステータスコードと期待するステータスコードを示します。
 
-## 注意事項
+## 注意事項 / caution
 このプログラムは現在開発中のため、バグが含まれている可能性があります。  
 また、バグを発見した場合は、PRを送っていただけると幸いです。
+
+## 姉妹プロジェクト / sister projects
+ - [openapi2raxtest](https://github.com/calloc134/openapi2raxtest) : OpenAPIからRaxTestのテストケースを生成するツール
