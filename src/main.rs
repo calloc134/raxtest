@@ -1,26 +1,27 @@
 mod utils;
+use clap::Parser;
 use utils::types::RaxResult;
 use utils::{gen_struct, render_results, run_init, run_test};
 
-use clap::Parser;
-
-/// Simple program to greet a person
+/// 引数を格納する構造体を定義
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Path to the input config file
+    /// インプットするymlファイルのパス
     #[arg(short, long, default_value_t = String::from("index.yml"))]
     input_yml_path: String,
 
-    // /// Path to the output json file
+    // 出力先jsonファイルのパス
     #[arg(short, long, default_value_t = String::from("result.json"))]
     output_json_path: String,
 }
 
 #[tokio::main]
 async fn main() -> RaxResult<()> {
+    // コマンドライン引数をパースする
     let args = Args::parse();
 
+    // ASCIIアートを表示する
     let ascii_art = r#"
     _____  _____  __  __  ____  _____  _____  ____ 
     /  _  \/  _  \/  \/  \/    \/   __\/  ___>/    \
@@ -44,6 +45,7 @@ async fn main() -> RaxResult<()> {
     )
     .await?;
 
+    // テスト結果をレンダリング
     render_results(&test_config.base_url, &args.output_json_path, results)?;
 
     Ok(())
