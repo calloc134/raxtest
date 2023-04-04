@@ -8,13 +8,17 @@ use tokio::task::JoinHandle;
 
 use serde_json::{to_string_pretty, to_writer_pretty, Value};
 
-mod types;
-use types::{InitStep, JsonMap, ResultData, TestConfig, TestStep};
+use anyhow::anyhow;
+
+// とりあえず, mainから呼べるようにpubをつけている. いい方法かは不明
+pub mod types;
+
+use types::{InitStep, JsonMap, RaxResult, ResultData, TestConfig, TestStep};
 
 use self::types::TestResult;
 
 // テスト構成ファイルの構造体を生成する関数
-pub fn gen_struct(index_path: String) -> Result<(TestConfig, JsonMap), Box<dyn std::error::Error>> {
+pub fn gen_struct(index_path: String) -> RaxResult<(TestConfig, JsonMap)> {
     // テスト構成ファイルを読み込む
     println!("[* ] Loading test config file...");
     let config_file = File::open(&index_path)?;
@@ -23,8 +27,14 @@ pub fn gen_struct(index_path: String) -> Result<(TestConfig, JsonMap), Box<dyn s
 
     // データファイルのパス指定が正しいかチェックする
     println!("[* ] Checking data file path...");
+
     if !test_config.data.starts_with("json://") {
-        return Err("Invalid data file path".into());
+        return Err(anyhow!("Invalid data file path"));
+        // anyhowマクロで簡単にanyuhowのエラーを返せる
+        // bail!(hoge) という書き方もある
+        // bail!(hoge) は return Err(anyhow!(hoge)) と同じ意味;
+        // ensureマクロを使うとifを使わずに書ける
+        // ensure!(test_config.data.starts_with("json://"),"Invalid data file path");
     }
 
     // データの格納されているjsonファイルを読み込む
@@ -45,7 +55,7 @@ pub async fn run_init(
     base_url: &String,
     init: Vec<InitStep>,
     json_data: &JsonMap,
-) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+) -> RaxResult<HashMap<String, String>> {
     // クッキーを格納するハッシュマップを作成
     let mut cookie_map: HashMap<String, String> =
         init.iter().fold(HashMap::new(), |mut acc, key| {
@@ -117,7 +127,7 @@ pub async fn run_test(
     steps: Vec<TestStep>,
     json_data: &JsonMap,
     cookie_map: &HashMap<String, String>,
-) -> Result<Vec<TestResult>, Box<dyn std::error::Error>> {
+) -> RaxResult<Vec<TestResult>> {
     // HTTPクライアントを初期化
     let client = Client::new();
 
@@ -263,7 +273,7 @@ pub fn render_results(
     base_url: &String,
     output_json_path: &String,
     results: Vec<TestResult>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> RaxResult<()> {
     // 書き出すJSONデータを作成する
     let result_data = ResultData {
         base_url: base_url.clone(),

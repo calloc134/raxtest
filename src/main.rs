@@ -1,4 +1,5 @@
 mod utils;
+use utils::types::RaxResult;
 use utils::{gen_struct, render_results, run_init, run_test};
 
 use clap::Parser;
@@ -17,7 +18,7 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> RaxResult<()> {
     let args = Args::parse();
 
     let ascii_art = r#"
