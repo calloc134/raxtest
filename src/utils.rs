@@ -71,7 +71,7 @@ pub async fn run_init(
             let client_clone = client.clone();
 
             // アクセスするURLを作成する
-            let url = format!("{}/{}", base_url, init_step.path);
+            let url = format!("{}{}", base_url, init_step.path);
             println!("[* -{name}] Accessing {}...", url, name = init_step.name);
 
             // リクエストクライアントの作成
@@ -106,11 +106,14 @@ pub async fn run_init(
         let response = task.await??;
 
         // クッキーをハッシュマップに格納する
-        if let Some(value) = cookie_map.get_mut(init[i].name.as_str()) {
-            let header = &response.headers().get("set-cookie").unwrap();
-            *value = header.to_str().unwrap().to_string();
+        if let Some(cookie) = response.headers().get("set-cookie") {
+            // クッキーのハッシュマップにクッキーの値を格納する
+            cookie_map.insert(
+                init[i].name.to_string(),
+                cookie.to_str().unwrap().to_string(),
+            );
 
-            println!("[# -{name}] Cookie: {}", value, name = init[i].name);
+            println!("[# -{name}] Cookie: {:?}", cookie, name = init[i].name);
         }
         // レスポンスボディを表示する
         let body = response.text().await?;
@@ -177,7 +180,7 @@ pub async fn run_test(
             };
 
             // アクセスするURLを作成する
-            let url = format!("{}/{}", base_url, rewrite_path);
+            let url = format!("{}{}", base_url, rewrite_path);
             println!("[* -{name}] Accessing {}...", url, name = test_step.name);
 
             // リクエストクライアントの作成
