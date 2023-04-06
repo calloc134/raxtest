@@ -1,10 +1,12 @@
 use anyhow::anyhow;
+use futures::future::join_all;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
 use reqwest::{Client, Error, Response};
-use serde_json::{to_string_pretty, to_writer_pretty, Value};
+use serde_json::{to_writer_pretty, Value};
 use std::fs::File;
 use std::io::BufReader;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{collections::HashMap, str::FromStr};
 use tokio::task::JoinHandle;
 
@@ -17,14 +19,15 @@ use types::{Category, InitStep, JsonMap, RaxResult, ResultData, TestConfig, Test
 // 戻り値：RaxResult<(TestConfig, JsonMap)> -> テスト構成ファイルの構造体とjsonデータの連想配列のタプル
 pub fn gen_struct(index_path: String) -> RaxResult<(TestConfig, JsonMap)> {
     // テスト構成ファイルを読み込む
-    println!("[* ] Loading test config file...");
+    println!("[*] Loading test config file...");
     let config_file = File::open(&index_path)?;
     let reader = BufReader::new(config_file);
     let test_config: TestConfig = serde_yaml::from_reader(reader)?;
 
     // データファイルのパス指定が正しいかチェックする
-    println!("[* ] Checking data file path...");
+    println!("[*] Checking data file path...");
 
+    // jsonデータのパスが正しいかチェックする
     if !test_config.data.starts_with("json://") {
         return Err(anyhow!("Invalid data file path"));
         // 代替案: bail!("Invalid data file path"); -> anyhowのマクロ anyhowのエラーを返す
@@ -32,7 +35,7 @@ pub fn gen_struct(index_path: String) -> RaxResult<(TestConfig, JsonMap)> {
     }
 
     // データの格納されているjsonファイルを読み込む
-    println!("[* ] Loading json data file...");
+    println!("[*] Loading json data file...");
     let data_file = File::open(test_config.data.trim_start_matches("json://"))?;
     let reader = BufReader::new(data_file);
     let json_data: JsonMap = serde_json::from_reader(reader)?;
@@ -60,19 +63,38 @@ pub async fn run_init(
         });
 
     // HTTPクライアントを初期化
-    println!("[* ] Initializing HTTP client...");
+    println!("[*] Initializing HTTP client...");
     let client = Client::new();
+
+    // マルチプログレスバーを生成
+    let m = MultiProgress::new();
 
     // タスクのベクタに、initステップの数だけクロージャを格納してテスト実行の前準備
     let tasks: Vec<JoinHandle<Result<Response, Error>>> = init
         .iter()
-        .map(|init_step| {
+        .enumerate()
+        .map(|(index, init_step)| {
+            // initステップの名前をクローン
+            let init_name = init_step.name.to_string();
             // クライアントをクローンする
             let client_clone = client.clone();
 
+            // プログレスバーのスタイルを設定
+            let spinner_style =
+                ProgressStyle::with_template("{prefix:.bold.dim} {spinner:.green} {wide_msg}")
+                    .unwrap()
+                    .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
+
+            // プログレスバーを生成
+            let pb = m.add(ProgressBar::new(1));
+            pb.set_style(spinner_style);
+            pb.set_prefix(format!("[{}/{}]", index + 1, init.len()));
+            pb.enable_steady_tick(std::time::Duration::from_millis(50));
+
             // アクセスするURLを作成する
             let url = format!("{}{}", base_url, init_step.path);
-            println!("[* -{name}] Accessing {}...", url, name = init_step.name);
+            // ステータスのメッセージを変更
+            pb.set_message(format!("Setting URL... -> [{name}]", name = init_name));
 
             // リクエストクライアントの作成
             let mut request = client_clone.request(
@@ -84,26 +106,52 @@ pub async fn run_init(
             if let Some(body) = &init_step.body {
                 // リクエストボディをjsonデータから取得
                 let init_data = json_data.get(body).unwrap().get("body").unwrap();
-                println!(
-                    "[* -{name}] Request body: {}",
-                    to_string_pretty(&init_data).unwrap(),
-                    name = init_step.name
-                );
+                // ステータスのメッセージを変更
+                pb.set_message(format!(
+                    "Setting the request body... -> [{name}]",
+                    name = init_name
+                ));
                 // リクエストボディを設定
                 request = request.json(&init_data);
             }
 
+            // ステータスのメッセージを変更
+            pb.set_message(format!(
+                "Sending the request... -> [{name}]",
+                name = init_name
+            ));
+
             // リクエストを送信
             tokio::spawn(async move {
                 // リクエストを送信
-                request.send().await
+                match request.send().await {
+                    Ok(response) => {
+                        // ステータスのメッセージを変更
+                        pb.finish_with_message(format!(
+                            "Request succeeded. -> [{name}]",
+                            name = init_name
+                        ));
+                        Ok(response)
+                    }
+                    Err(e) => {
+                        // ステータスのメッセージを変更
+                        pb.finish_with_message(format!(
+                            "Request failed. -> [{name}]",
+                            name = init_name
+                        ));
+                        Err(e)
+                    }
+                }
             })
         })
         .collect();
 
+    // タスクをまとめて実行
+    let tasks_result = join_all(tasks).await;
+
     // タスクのベクタに格納したクロージャを実行
-    for (i, task) in tasks.into_iter().enumerate() {
-        let response = task.await??;
+    for (i, task) in tasks_result.into_iter().enumerate() {
+        let response = task??;
 
         // クッキーをハッシュマップに格納する
         if let Some(cookie) = response.headers().get("set-cookie") {
@@ -113,12 +161,19 @@ pub async fn run_init(
                 cookie.to_str().unwrap().to_string(),
             );
 
-            println!("[# -{name}] Cookie: {:?}", cookie, name = init[i].name);
+            println!("[#] Cookie: {:?} -> [{name}]", cookie, name = init[i].name);
         }
         // レスポンスボディを表示する
         let body = response.text().await?;
-        println!("[# -{name}] Response body: {}", body, name = init[i].name);
-        println!("[# -{name}] Init step {} completed", name = init[i].name);
+        println!(
+            "[#] Response body: {} -> [{name}]",
+            body,
+            name = init[i].name
+        );
+        println!(
+            "[*] Init step {name} completed. -> [{name}]",
+            name = init[i].name
+        );
         println!("")
     }
 
@@ -140,21 +195,49 @@ pub async fn run_test(
 ) -> RaxResult<Vec<TestResult>> {
     // 結果を格納するベクタを初期化
     let mut results: Vec<TestResult> = Vec::new();
+
     // HTTPクライアントを初期化
     let client = Client::new();
 
-    for (category_name, category) in categories.iter() {
+    for (_, (category_name, category)) in categories.iter().enumerate() {
+        // マルチプログレスバーを生成
+        let m = MultiProgress::new();
+
         // タスクのベクタに、テストステップの数だけクロージャを格納してテスト実行の前準備
-        let tasks: Vec<JoinHandle<Result<(usize, Response, Instant), Error>>> = category
+        let tasks: Vec<JoinHandle<Result<(usize, Response, Duration), Error>>> = category
             .steps
             .iter()
             .enumerate()
             .map(|(index, test_step)| {
+                // プログレスバーのスタイルを設定
+                let spinner_style =
+                    ProgressStyle::with_template("{prefix:.bold.dim} {spinner:.green} {wide_msg}")
+                        .unwrap()
+                        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
+
+                // プログレスバーを生成
+                let pb = m.add(ProgressBar::new(1));
+                pb.set_style(spinner_style);
+                pb.set_prefix(format!("[{}/{}]", index + 1, category.steps.len()));
+                pb.enable_steady_tick(std::time::Duration::from_millis(50));
+
+                // テスト名をクローンする
+                let test_step_name = test_step.name.clone();
+
                 // クライアントをクローンする
                 let client_clone = client.clone();
 
+                // ステータスのメッセージを変更
+                pb.set_message(format!("Preparing the request... -> [{}]", test_step_name));
+
                 // クエリの指定がある場合は、jsonデータよりクエリを設定し、URLを書き換える
                 let rewrite_path = if let Some(query) = &test_step.query {
+                    // ステータスのメッセージを変更
+                    pb.set_message(format!(
+                        "Setting the query... - [{name}]",
+                        name = test_step_name
+                    ));
+
                     let test_query = &json_data.get(query).unwrap().get("query").unwrap();
 
                     // 正規表現をコンパイル
@@ -171,11 +254,6 @@ pub async fn run_test(
                             }
                         });
 
-                    println!(
-                        "[* -{name}] Query: {}",
-                        to_string_pretty(&test_query).unwrap(),
-                        name = test_step.name
-                    );
                     replaced_string.to_string()
 
                 // クエリの指定がない場合は、パスをそのまま使用する
@@ -185,7 +263,8 @@ pub async fn run_test(
 
                 // アクセスするURLを作成する
                 let url = format!("{}{}", base_url, rewrite_path);
-                println!("[* -{name}] Accessing {}...", url, name = test_step.name);
+                // ステータスのメッセージを変更
+                pb.set_message(format!("Setting URL... - [{name}]", name = test_step_name));
 
                 // リクエストクライアントの作成
                 let mut request = client_clone.request(
@@ -196,63 +275,93 @@ pub async fn run_test(
 
                 // リクエストボディがある場合は、jsonデータよりリクエストボディを設定する
                 if let Some(body) = &test_step.body {
+                    // ステータスバーの表示を変更
+                    pb.set_message(format!(
+                        "Setting the request body... -> [{name}]",
+                        name = test_step_name
+                    ));
+
                     // リクエストボディをjsonデータから取得
                     let test_body = &json_data.get(body).unwrap().get("body").unwrap();
                     request = request.json(test_body);
-                    println!(
-                        "[* -{name}] Request body: {}",
-                        to_string_pretty(&test_body).unwrap(),
-                        name = test_step.name
-                    );
                 }
 
+                // リクエストを送信
                 // ログインが必要な場合は、クッキーを設定する
                 if let Some(login) = &category.login {
+                    // ステータスバーの表示を変更
+                    pb.set_message(format!(
+                        "Setting the cookie... -> [{name}]",
+                        name = test_step_name
+                    ));
+
                     // クッキーをハッシュマップから取得
                     let cookie = cookie_map.get(login).unwrap();
-                    println!("[* -{name}] Cookie: {}", cookie, name = test_step.name);
 
                     // リクエストヘッダにクッキーを設定
                     request = request.header("Cookie", cookie);
                 }
 
-                // リクエストを送信
+                // ステータスバーの表示を変更
+                pb.set_message(format!(
+                    "Sending the request... -> [{name}]",
+                    name = test_step.name
+                ));
+
                 tokio::spawn(async move {
-                    return match request.send().await {
+                    let start_time = Instant::now();
+
+                    match request.send().await {
                         // インデックスとレスポンスをタプルにして返す
-                        Ok(response) => Ok((index, response, Instant::now())),
-                        Err(e) => Err(e.into()),
+                        Ok(response) => {
+                            let elapsed_time = start_time.elapsed();
+
+                            // ステータスバーの表示を変更
+                            pb.finish_with_message(format!(
+                                "Request succeeded. -> [{name}]",
+                                name = test_step_name
+                            ));
+                            return Ok((index, response, elapsed_time));
+                        }
+                        Err(e) => {
+                            // ステータスバーの表示を変更
+                            pb.finish_with_message(format!(
+                                "Request failed. -> [{name}]",
+                                name = test_step_name
+                            ));
+                            return Err(e.into());
+                        }
                     };
                 })
             })
             .collect();
 
+        let tasks_result = join_all(tasks).await;
+
         // タスクのベクタをイテレートして、レスポンスを受け取る
-        for task in tasks {
+        for task in tasks_result {
             // タスクの結果を受け取る
-            let (index, response, start_time) = task.await??;
-            // タスクにかかった時間を計測
-            let elapsed_time = start_time.elapsed();
+            let (index, response, elapsed_time) = task??;
             // ステータスコードを取得
             let status = response.status();
 
             println!(
-                "[* -{name}] Status: {}",
+                "[*] Status: {} -> [{name}]",
                 status,
                 name = category.steps[index].name
             );
             println!(
-                "[* -{name}] Headers: {:?}",
+                "[*] Headers: {:?} -> [{name}]",
                 response.headers(),
                 name = category.steps[index].name
             );
             println!(
-                "[* -{name}] Response body: {}",
+                "[*] Response body: {} -> [{name}]",
                 response.text().await?,
                 name = category.steps[index].name
             );
             println!(
-                "[* -{name}] Elapsed time: {}ms",
+                "[*] Elapsed time: {}ms -> [{name}]",
                 elapsed_time.as_millis(),
                 name = category.steps[index].name
             );
@@ -260,7 +369,7 @@ pub async fn run_test(
             // ステータスコードが期待値と一致するか確認し、結果を格納
             if status == category.steps[index].expect_status {
                 println!(
-                    "[# -{name}] Test passed!",
+                    "[#] Test passed! -> [{name}]",
                     name = category.steps[index].name
                 );
                 results.push(TestResult {
@@ -276,7 +385,7 @@ pub async fn run_test(
             // 一致しない場合は、失敗として結果を格納
             } else {
                 println!(
-                    "[! -{name}] Test failed! (status: {}, expect status: {})",
+                    "[!] Test failed! (status: {}, expect status: {}) -> [{name}]",
                     status,
                     category.steps[index].expect_status,
                     name = category.steps[index].name
@@ -295,7 +404,7 @@ pub async fn run_test(
             }
 
             println!(
-                "[# -{name}] Test step {} completed",
+                "[*] Test step {} completed. -> [{name}]",
                 category.steps[index].name,
                 name = category.steps[index].name
             );
