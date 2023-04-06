@@ -9,6 +9,13 @@ pub struct TestConfig {
     pub base_url: String,
     pub data: String,
     pub init: Vec<InitStep>,
+    pub categories: HashMap<String, Category>,
+}
+
+// カテゴリーの構造体を定義する
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Category {
+    pub login: Option<String>,
     pub steps: Vec<TestStep>,
 }
 
@@ -30,13 +37,13 @@ pub struct TestStep {
     pub expect_status: u16,
     pub query: Option<String>,
     pub body: Option<String>,
-    pub login: Option<String>,
 }
 
 // テストの結果を格納する構造体を定義する
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TestResult {
     pub name: String,
+    pub category: String,
     pub status: String,
     pub duration: f64,
     pub message: String,

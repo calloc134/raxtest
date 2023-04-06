@@ -39,7 +39,7 @@ async fn main() -> RaxResult<()> {
     // テストステップを実行する
     let results = run_test(
         &test_config.base_url,
-        test_config.steps,
+        test_config.categories,
         &json_data,
         &cookie_map,
     )

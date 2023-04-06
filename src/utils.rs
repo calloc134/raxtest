@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 
 // とりあえず, mainから呼べるようにpubをつけている. いい方法かは不明
 pub mod types;
-use types::{InitStep, JsonMap, RaxResult, ResultData, TestConfig, TestResult, TestStep};
+use types::{Category, InitStep, JsonMap, RaxResult, ResultData, TestConfig, TestResult};
 
 // テスト構成ファイルの構造体を生成する関数
 // 引数：index_path: String -> テスト構成ファイルのパス。所有権を移動する
@@ -134,159 +134,173 @@ pub async fn run_init(
 // 戻り値：RaxResult<Vec<TestResult>> -> テスト結果の構造体のベクタをRaxResultでラップしたもの
 pub async fn run_test(
     base_url: &String,
-    steps: Vec<TestStep>,
+    categories: HashMap<String, Category>,
     json_data: &JsonMap,
     cookie_map: &HashMap<String, String>,
 ) -> RaxResult<Vec<TestResult>> {
+    // 結果を格納するベクタを初期化
+    let mut results: Vec<TestResult> = Vec::new();
     // HTTPクライアントを初期化
     let client = Client::new();
 
-    // タスクのベクタに、テストステップの数だけクロージャを格納してテスト実行の前準備
-    let tasks: Vec<JoinHandle<Result<(usize, Response, Instant), Error>>> = steps
-        .iter()
-        .enumerate()
-        .map(|(index, test_step)| {
-            // クライアントをクローンする
-            let client_clone = client.clone();
+    for (category_name, category) in categories.iter() {
+        // タスクのベクタに、テストステップの数だけクロージャを格納してテスト実行の前準備
+        let tasks: Vec<JoinHandle<Result<(usize, Response, Instant), Error>>> = category
+            .steps
+            .iter()
+            .enumerate()
+            .map(|(index, test_step)| {
+                // クライアントをクローンする
+                let client_clone = client.clone();
 
-            // クエリの指定がある場合は、jsonデータよりクエリを設定し、URLを書き換える
-            let rewrite_path = if let Some(query) = &test_step.query {
-                let test_query = &json_data.get(query).unwrap().get("query").unwrap();
+                // クエリの指定がある場合は、jsonデータよりクエリを設定し、URLを書き換える
+                let rewrite_path = if let Some(query) = &test_step.query {
+                    let test_query = &json_data.get(query).unwrap().get("query").unwrap();
 
-                // 正規表現をコンパイル
-                let re = Regex::new(r"\{(\w+)\}").unwrap();
-                // 正規表現にマッチした部分を、jsonデータから取得した値に置換する
-                let replaced_string =
-                    re.replace_all(test_step.path.as_str(), |captures: &regex::Captures| {
-                        let key = &captures[1];
-                        let query_original = test_query.get(key).unwrap();
-                        match query_original {
-                            Value::String(s) => s.clone(),
-                            Value::Number(n) => n.to_string(),
-                            _ => "".to_string(),
-                        }
-                    });
+                    // 正規表現をコンパイル
+                    let re = Regex::new(r"\{(\w+)\}").unwrap();
+                    // 正規表現にマッチした部分を、jsonデータから取得した値に置換する
+                    let replaced_string =
+                        re.replace_all(test_step.path.as_str(), |captures: &regex::Captures| {
+                            let key = &captures[1];
+                            let query_original = test_query.get(key).unwrap();
+                            match query_original {
+                                Value::String(s) => s.clone(),
+                                Value::Number(n) => n.to_string(),
+                                _ => "".to_string(),
+                            }
+                        });
 
-                println!(
-                    "[* -{name}] Query: {}",
-                    to_string_pretty(&test_query).unwrap(),
-                    name = test_step.name
-                );
-                replaced_string.to_string()
+                    println!(
+                        "[* -{name}] Query: {}",
+                        to_string_pretty(&test_query).unwrap(),
+                        name = test_step.name
+                    );
+                    replaced_string.to_string()
 
-            // クエリの指定がない場合は、パスをそのまま使用する
-            } else {
-                test_step.path.clone()
-            };
-
-            // アクセスするURLを作成する
-            let url = format!("{}{}", base_url, rewrite_path);
-            println!("[* -{name}] Accessing {}...", url, name = test_step.name);
-
-            // リクエストクライアントの作成
-            let mut request = client_clone.request(
-                reqwest::Method::from_bytes(test_step.method.as_bytes())
-                    .unwrap_or(reqwest::Method::GET),
-                &url,
-            );
-
-            // リクエストボディがある場合は、jsonデータよりリクエストボディを設定する
-            if let Some(body) = &test_step.body {
-                // リクエストボディをjsonデータから取得
-                let test_body = &json_data.get(body).unwrap().get("body").unwrap();
-                request = request.json(test_body);
-                println!(
-                    "[* -{name}] Request body: {}",
-                    to_string_pretty(&test_body).unwrap(),
-                    name = test_step.name
-                );
-            }
-
-            // ログインが必要な場合は、クッキーを設定する
-            if let Some(login) = &test_step.login {
-                // クッキーをハッシュマップから取得
-                let cookie = cookie_map.get(login).unwrap();
-                println!("[* -{name}] Cookie: {}", cookie, name = test_step.name);
-
-                // リクエストヘッダにクッキーを設定
-                request = request.header("Cookie", cookie);
-            }
-
-            // リクエストを送信
-            tokio::spawn(async move {
-                return match request.send().await {
-                    // インデックスとレスポンスをタプルにして返す
-                    Ok(response) => Ok((index, response, Instant::now())),
-                    Err(e) => Err(e.into()),
+                // クエリの指定がない場合は、パスをそのまま使用する
+                } else {
+                    test_step.path.clone()
                 };
+
+                // アクセスするURLを作成する
+                let url = format!("{}{}", base_url, rewrite_path);
+                println!("[* -{name}] Accessing {}...", url, name = test_step.name);
+
+                // リクエストクライアントの作成
+                let mut request = client_clone.request(
+                    reqwest::Method::from_bytes(test_step.method.as_bytes())
+                        .unwrap_or(reqwest::Method::GET),
+                    &url,
+                );
+
+                // リクエストボディがある場合は、jsonデータよりリクエストボディを設定する
+                if let Some(body) = &test_step.body {
+                    // リクエストボディをjsonデータから取得
+                    let test_body = &json_data.get(body).unwrap().get("body").unwrap();
+                    request = request.json(test_body);
+                    println!(
+                        "[* -{name}] Request body: {}",
+                        to_string_pretty(&test_body).unwrap(),
+                        name = test_step.name
+                    );
+                }
+
+                // ログインが必要な場合は、クッキーを設定する
+                if let Some(login) = &category.login {
+                    // クッキーをハッシュマップから取得
+                    let cookie = cookie_map.get(login).unwrap();
+                    println!("[* -{name}] Cookie: {}", cookie, name = test_step.name);
+
+                    // リクエストヘッダにクッキーを設定
+                    request = request.header("Cookie", cookie);
+                }
+
+                // リクエストを送信
+                tokio::spawn(async move {
+                    return match request.send().await {
+                        // インデックスとレスポンスをタプルにして返す
+                        Ok(response) => Ok((index, response, Instant::now())),
+                        Err(e) => Err(e.into()),
+                    };
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    // 結果を格納するベクタを初期化
-    let mut results: Vec<TestResult> = Vec::new();
+        // タスクのベクタをイテレートして、レスポンスを受け取る
+        for task in tasks {
+            // タスクの結果を受け取る
+            let (index, response, start_time) = task.await??;
+            // タスクにかかった時間を計測
+            let elapsed_time = start_time.elapsed();
+            // ステータスコードを取得
+            let status = response.status();
 
-    // タスクのベクタをイテレートして、レスポンスを受け取る
-    for task in tasks {
-        // タスクの結果を受け取る
-        let (index, response, start_time) = task.await??;
-        // タスクにかかった時間を計測
-        let elapsed_time = start_time.elapsed();
-        // ステータスコードを取得
-        let status = response.status();
-
-        println!("[* -{name}] Status: {}", status, name = steps[index].name);
-        println!(
-            "[* -{name}] Headers: {:?}",
-            response.headers(),
-            name = steps[index].name
-        );
-        println!(
-            "[* -{name}] Response body: {}",
-            response.text().await?,
-            name = steps[index].name
-        );
-        println!(
-            "[* -{name}] Elapsed time: {}ms",
-            elapsed_time.as_millis(),
-            name = steps[index].name
-        );
-
-        // ステータスコードが期待値と一致するか確認し、結果を格納
-        if status == steps[index].expect_status {
-            println!("[# -{name}] Test passed!", name = steps[index].name);
-            results.push(TestResult {
-                name: steps[index].name.clone(),
-                status: "success".to_string(),
-                message: "passed".to_string(),
-                duration: elapsed_time.as_secs_f64(),
-            });
-        // 一致しない場合は、失敗として結果を格納
-        } else {
             println!(
-                "[! -{name}] Test failed! (status: {}, expect status: {})",
+                "[* -{name}] Status: {}",
                 status,
-                steps[index].expect_status,
-                name = steps[index].name
+                name = category.steps[index].name
+            );
+            println!(
+                "[* -{name}] Headers: {:?}",
+                response.headers(),
+                name = category.steps[index].name
+            );
+            println!(
+                "[* -{name}] Response body: {}",
+                response.text().await?,
+                name = category.steps[index].name
+            );
+            println!(
+                "[* -{name}] Elapsed time: {}ms",
+                elapsed_time.as_millis(),
+                name = category.steps[index].name
             );
 
-            results.push(TestResult {
-                name: steps[index].name.clone(),
-                status: "failure".to_string(),
-                message: format!(
-                    "failed (status: {}, expect status: {})",
-                    status, steps[index].expect_status
-                ),
-                duration: elapsed_time.as_secs_f64(),
-            });
-        }
+            // ステータスコードが期待値と一致するか確認し、結果を格納
+            if status == category.steps[index].expect_status {
+                println!(
+                    "[# -{name}] Test passed!",
+                    name = category.steps[index].name
+                );
+                results.push(TestResult {
+                    name: category.steps[index].name.clone(),
+                    category: category_name.clone(),
+                    status: "success".to_string(),
+                    message: format!(
+                        "success (status: {}, expect status: {})",
+                        status, category.steps[index].expect_status
+                    ),
+                    duration: elapsed_time.as_secs_f64(),
+                });
+            // 一致しない場合は、失敗として結果を格納
+            } else {
+                println!(
+                    "[! -{name}] Test failed! (status: {}, expect status: {})",
+                    status,
+                    category.steps[index].expect_status,
+                    name = category.steps[index].name
+                );
 
-        println!(
-            "[# -{name}] Test step {} completed",
-            steps[index].name,
-            name = steps[index].name
-        );
-        println!("")
+                results.push(TestResult {
+                    name: category.steps[index].name.clone(),
+                    category: category_name.clone(),
+                    status: "failure".to_string(),
+                    message: format!(
+                        "failed (status: {}, expect status: {})",
+                        status, category.steps[index].expect_status
+                    ),
+                    duration: elapsed_time.as_secs_f64(),
+                });
+            }
+
+            println!(
+                "[# -{name}] Test step {} completed",
+                category.steps[index].name,
+                name = category.steps[index].name
+            );
+            println!("")
+        }
     }
 
     Ok(results)
