@@ -3,16 +3,17 @@ use clap::Parser;
 use utils::types::RaxResult;
 use utils::{gen_struct, render_results, run_init, run_test};
 
-/// 引数を格納する構造体を定義
+// 引数を格納する構造体を定義
+// raxtest
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// インプットするymlファイルのパス
-    #[arg(short, long, default_value_t = String::from("index.yml"))]
+    #[arg(short, long, required = true)]
     input_yml_path: String,
 
-    // 出力先jsonファイルのパス
-    #[arg(short, long, default_value_t = String::from("result.json"))]
+    /// 出力先のjsonファイルのパス
+    #[arg(short, long, required = true)]
     output_json_path: String,
 }
 

@@ -196,6 +196,7 @@ pub async fn run_test(
     // 結果を格納するベクタを初期化
     let mut results: Vec<TestResult> = Vec::new();
 
+    println!("[*] Initializing HTTP client...");
     // HTTPクライアントを初期化
     let client = Client::new();
 

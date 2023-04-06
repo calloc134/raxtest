@@ -46,30 +46,34 @@ init:
     method: POST
     body: init
 
-steps:
-  - name: apiall
-    path: api/profile/all
-    method: GET
-    expect_status: 200
+categories:
+  no_login:
+    - name: apiall
+      path: api/profile/all
+      method: GET
+      expect_status: 200
+    - name: ApiProfileMe_GET
+      path: /api/profile/me
+      method: GET
+      expect_status: 401
 
-  - name: apiProfileUsername
-    path: api/profile/@{name}
-    method: GET
-    query: ProfileUsername
-    expect_status: 200
-
-  - name: isLogin
-    path: api/profile/me
-    method: GET
+  loginStep:
     login: loginStep
-    expect_status: 200
+    - name: ApiProfileMe_GET
+      path: /api/profile/me
+      method: GET
+      expect_status: 200
+    - name: ApiProfileMe_PUT
+      path: /api/profile/me
+      method: PUT
+      body: ApiProfileMe_PUT
+      expect_status: 200
+    - name: ApiProfileScreenName_GET
+      path: /api/profile/@{screenName}
+      method: GET
+      query: ApiProfileScreenName_GET
+      expect_status: 200
 
-  - name: PostNewArticle
-    path: api/post/new
-    method: POST
-    body: Article
-    expect_status: 200
-    login: loginStep
 ```
 それぞれの項目の意味を以下に示します。
 
@@ -82,9 +86,15 @@ json形式のファイルを指定することができます。
  -  init  
 テストの初期化を行うステップを指定します。  
 ここではシーケンスを用いて、複数のステップを指定することができます。
- -  steps  
-テストを行うステップを指定します。  
-ここではシーケンスを用いて、複数のステップを指定することができます。
+ -  categories  
+テストを行うステップのカテゴリを指定します。 
+
+カテゴリのオプションは以下の通りです。
+
+  - login: init内の参照するログイン情報のステップの名前
+  - steps: テストを行うステップ
+
+stepsは、シーケンスを用いながら複数のステップで指定します。
 
 ステップのオプション項目は以下の通りです。
 
