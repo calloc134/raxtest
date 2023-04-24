@@ -105,7 +105,7 @@ pub async fn run_init(
             // リクエストボディがある場合は、jsonデータよりリクエストボディを設定する
             if let Some(body) = &init_step.body {
                 // リクエストボディをjsonデータから取得
-                let init_data = json_data.get(body).unwrap().get("body").unwrap();
+                let init_data = (json_data.get(body).unwrap())[0].get("body").unwrap();
                 // ステータスのメッセージを変更
                 pb.set_message(format!(
                     "Setting the request body... -> [{name}]",
@@ -204,12 +204,15 @@ pub async fn run_test(
         // マルチプログレスバーを生成
         let m = MultiProgress::new();
 
+        // タスクを格納するベクタを初期化
+        let mut tasks: Vec<JoinHandle<Result<(usize, usize, Response, Duration), Error>>> =
+            Vec::new();
+
+        let mut total_index = 0;
+
         // タスクのベクタに、テストステップの数だけクロージャを格納してテスト実行の前準備
-        let tasks: Vec<JoinHandle<Result<(usize, Response, Duration), Error>>> = category
-            .steps
-            .iter()
-            .enumerate()
-            .map(|(index, test_step)| {
+        for (step_index, test_step) in category.steps.iter().enumerate() {
+            for data_index in 0..(json_data.get(&test_step.name).unwrap().len()) {
                 // プログレスバーのスタイルを設定
                 let spinner_style =
                     ProgressStyle::with_template("{prefix:.bold.dim} {spinner:.green} {wide_msg}")
@@ -219,27 +222,32 @@ pub async fn run_test(
                 // プログレスバーを生成
                 let pb = m.add(ProgressBar::new(1));
                 pb.set_style(spinner_style);
-                pb.set_prefix(format!("[{}/{}]", index + 1, category.steps.len()));
+                pb.set_prefix(format!("[{}]", total_index + 1));
                 pb.enable_steady_tick(std::time::Duration::from_millis(50));
 
-                // テスト名をクローンする
-                let test_step_name = test_step.name.clone();
+                // テスト名にインデックスを付与して文字列を生成
+                let name_with_data_index = format!("{}_{}", test_step.name, data_index);
 
                 // クライアントをクローンする
                 let client_clone = client.clone();
 
                 // ステータスのメッセージを変更
-                pb.set_message(format!("Preparing the request... -> [{}]", test_step_name));
+                pb.set_message(format!(
+                    "Preparing the request... -> [{}]",
+                    name_with_data_index
+                ));
 
                 // クエリの指定がある場合は、jsonデータよりクエリを設定し、URLを書き換える
                 let rewrite_path = if let Some(query) = &test_step.query {
                     // ステータスのメッセージを変更
                     pb.set_message(format!(
                         "Setting the query... - [{name}]",
-                        name = test_step_name
+                        name = name_with_data_index
                     ));
 
-                    let test_query = &json_data.get(query).unwrap().get("query").unwrap();
+                    let test_query = (&json_data.get(query).unwrap())[data_index]
+                        .get("query")
+                        .unwrap();
 
                     // 正規表現をコンパイル
                     let re = Regex::new(r"\{(\w+)\}").unwrap();
@@ -265,7 +273,10 @@ pub async fn run_test(
                 // アクセスするURLを作成する
                 let url = format!("{}{}", base_url, rewrite_path);
                 // ステータスのメッセージを変更
-                pb.set_message(format!("Setting URL... - [{name}]", name = test_step_name));
+                pb.set_message(format!(
+                    "Setting URL... - [{name}]",
+                    name = name_with_data_index
+                ));
 
                 // リクエストクライアントの作成
                 let mut request = client_clone.request(
@@ -279,11 +290,13 @@ pub async fn run_test(
                     // ステータスバーの表示を変更
                     pb.set_message(format!(
                         "Setting the request body... -> [{name}]",
-                        name = test_step_name
+                        name = name_with_data_index
                     ));
 
                     // リクエストボディをjsonデータから取得
-                    let test_body = &json_data.get(body).unwrap().get("body").unwrap();
+                    let test_body = (&json_data.get(body).unwrap())[data_index]
+                        .get("body")
+                        .unwrap();
                     request = request.json(test_body);
                 }
 
@@ -293,7 +306,7 @@ pub async fn run_test(
                     // ステータスバーの表示を変更
                     pb.set_message(format!(
                         "Setting the cookie... -> [{name}]",
-                        name = test_step_name
+                        name = name_with_data_index
                     ));
 
                     // クッキーをハッシュマップから取得
@@ -306,10 +319,10 @@ pub async fn run_test(
                 // ステータスバーの表示を変更
                 pb.set_message(format!(
                     "Sending the request... -> [{name}]",
-                    name = test_step.name
+                    name = name_with_data_index
                 ));
 
-                tokio::spawn(async move {
+                tasks.push(tokio::spawn(async move {
                     let start_time = Instant::now();
 
                     match request.send().await {
@@ -320,66 +333,68 @@ pub async fn run_test(
                             // ステータスバーの表示を変更
                             pb.finish_with_message(format!(
                                 "Request succeeded. -> [{name}]",
-                                name = test_step_name
+                                name = name_with_data_index
                             ));
-                            return Ok((index, response, elapsed_time));
+                            return Ok((step_index, data_index, response, elapsed_time));
                         }
                         Err(e) => {
                             // ステータスバーの表示を変更
                             pb.finish_with_message(format!(
                                 "Request failed. -> [{name}]",
-                                name = test_step_name
+                                name = name_with_data_index
                             ));
                             return Err(e.into());
                         }
-                    };
-                })
-            })
-            .collect();
+                    }
+                }));
+                total_index += 1;
+            }
+        }
 
         let tasks_result = join_all(tasks).await;
 
         // タスクのベクタをイテレートして、レスポンスを受け取る
         for task in tasks_result {
             // タスクの結果を受け取る
-            let (index, response, elapsed_time) = task??;
+            let (step_index, data_index, response, elapsed_time) = task??;
             // ステータスコードを取得
             let status = response.status();
+
+            // テスト名にインデックスを付与して文字列を生成
+            let name_with_data_index =
+                format!("{}_{}", category.steps[step_index].name, data_index);
 
             println!(
                 "[*] Status: {} -> [{name}]",
                 status,
-                name = category.steps[index].name
+                name = name_with_data_index
             );
             println!(
                 "[*] Headers: {:?} -> [{name}]",
                 response.headers(),
-                name = category.steps[index].name
+                name = name_with_data_index
             );
             println!(
                 "[*] Response body: {} -> [{name}]",
                 response.text().await?,
-                name = category.steps[index].name
+                name = name_with_data_index
             );
             println!(
                 "[*] Elapsed time: {}ms -> [{name}]",
                 elapsed_time.as_millis(),
-                name = category.steps[index].name
+                name = name_with_data_index,
             );
 
             // ステータスコードが期待値と一致するか確認し、結果を格納
-            if status == category.steps[index].expect_status {
-                println!(
-                    "[#] Test passed! -> [{name}]",
-                    name = category.steps[index].name
-                );
+            if status == category.steps[step_index].expect_status {
+                println!("[#] Test passed! -> [{name}]", name = name_with_data_index);
                 results.push(TestResult {
-                    name: category.steps[index].name.clone(),
+                    name: name_with_data_index.clone(),
                     category: category_name.clone(),
                     status: "success".to_string(),
                     message: format!(
                         "success (status: {}, expect status: {})",
-                        status, category.steps[index].expect_status
+                        status, category.steps[step_index].expect_status
                     ),
                     duration: elapsed_time.as_secs_f64(),
                 });
@@ -388,17 +403,17 @@ pub async fn run_test(
                 println!(
                     "[!] Test failed! (status: {}, expect status: {}) -> [{name}]",
                     status,
-                    category.steps[index].expect_status,
-                    name = category.steps[index].name
+                    category.steps[step_index].expect_status,
+                    name = name_with_data_index
                 );
 
                 results.push(TestResult {
-                    name: category.steps[index].name.clone(),
+                    name: name_with_data_index.clone(),
                     category: category_name.clone(),
                     status: "failure".to_string(),
                     message: format!(
                         "failed (status: {}, expect status: {})",
-                        status, category.steps[index].expect_status
+                        status, category.steps[step_index].expect_status
                     ),
                     duration: elapsed_time.as_secs_f64(),
                 });
@@ -406,8 +421,8 @@ pub async fn run_test(
 
             println!(
                 "[*] Test step {} completed. -> [{name}]",
-                category.steps[index].name,
-                name = category.steps[index].name
+                category.steps[step_index].name,
+                name = name_with_data_index.clone()
             );
             println!("")
         }

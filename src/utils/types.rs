@@ -49,6 +49,7 @@ pub struct TestResult {
     pub message: String,
 }
 
+// テストの結果の外枠の構造体を定義する
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ResultData {
     pub base_url: String,
@@ -57,7 +58,8 @@ pub struct ResultData {
 
 // Jsonの内容を格納する連想配列を定義する
 // 引数：String -> jsonのキー。所有権を移動する
-pub type JsonMap = HashMap<String, HashMap<String, HashMap<String, Value>>>;
+// pub type JsonMap = HashMap<String, HashMap<String, HashMap<String, Value>>>;
+pub type JsonMap = HashMap<String, Vec<HashMap<String, HashMap<String, Value>>>>;
 
 // anyhowを使用したResult型のエイリアス
 // 名前は適当につけているので、好きな名前に変更しても良い
