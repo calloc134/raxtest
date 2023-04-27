@@ -4,44 +4,60 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 // テスト構成ファイルの構造体を定義する
-#[derive(Debug, Deserialize, Serialize)]
-pub struct TestConfig {
+#[derive(Debug, Deserialize)]
+pub struct InputConfigration {
     pub base_url: String,
     pub data: String,
-    pub init: Vec<InitStep>,
-    pub categories: HashMap<String, Category>,
+    pub init: Vec<InputStep>,
+    pub categories: HashMap<String, InputCaterogy>,
 }
 
 // カテゴリーの構造体を定義する
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Category {
+#[derive(Debug, Deserialize)]
+pub struct InputCaterogy {
     pub login: Option<String>,
-    pub steps: Vec<TestStep>,
+    pub steps: Vec<InputStep>,
 }
 
-// initステップの構造体を定義する
-#[derive(Debug, Deserialize, Serialize)]
-pub struct InitStep {
+// ステップの構造体を定義する
+#[derive(Debug, Deserialize)]
+pub struct InputStep {
     pub name: String,
     pub path: String,
     pub method: String,
-    pub body: Option<String>,
+    pub ref_data: String,
+    pub option: InputOption,
 }
-
-// テストのステップの構造体を定義する
-#[derive(Debug, Deserialize, Serialize)]
-pub struct TestStep {
+#[derive(Debug)]
+pub struct FlattenStep {
     pub name: String,
     pub path: String,
     pub method: String,
+    pub input_data: InputData,
+}
+
+// オプションの構造体を定義する
+#[derive(Debug, Deserialize)]
+pub struct InputOption {
+    pub body: bool,
+    pub query: bool,
+}
+
+// Jsonで与えられたデータの内容を格納する連想配列を定義する
+// 引数：String -> jsonのキー。所有権を移動する
+pub type InputDataMap = HashMap<String, Vec<InputData>>;
+
+// Jsonの内部データを格納する連想配列を定義する
+#[derive(Debug, Deserialize, Clone)]
+pub struct InputData {
+    pub body: Option<HashMap<String, Value>>,
+    pub query: Option<HashMap<String, Value>>,
     pub expect_status: u16,
-    pub query: Option<String>,
-    pub body: Option<String>,
 }
 
 // テストの結果を格納する構造体を定義する
-#[derive(Debug, Deserialize, Serialize)]
-pub struct TestResult {
+#[derive(Debug, Serialize)]
+pub struct OutputResult {
     pub name: String,
     pub category: String,
     pub status: String,
@@ -49,17 +65,11 @@ pub struct TestResult {
     pub message: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ResultData {
+#[derive(Debug, Serialize)]
+pub struct OutputData {
     pub base_url: String,
-    pub results: Vec<TestResult>,
+    pub results: Vec<OutputResult>,
 }
 
-// Jsonの内容を格納する連想配列を定義する
-// 引数：String -> jsonのキー。所有権を移動する
-pub type JsonMap = HashMap<String, HashMap<String, HashMap<String, Value>>>;
-
 // anyhowを使用したResult型のエイリアス
-// 名前は適当につけているので、好きな名前に変更しても良い
-// anyhow::Result<T> は Result<T, anyhow::Error> と同じ意味なので，そっちのほうが良いかも
-pub type RaxResult<T> = Result<T, Error>;
+pub type AppResult<T> = Result<T, Error>;
