@@ -59,9 +59,11 @@ pub fn gen_flatten_step(
 
     for (step_index, step) in test_steps.iter().enumerate() {
         // データの数だけステップを複製する
-        for (data_index, data) in (input_data_map.get(&step.ref_data).unwrap())
-            .iter()
-            .enumerate()
+        for (data_index, data) in (input_data_map
+            .get(&step.ref_data)
+            .expect("Invalid data reference"))
+        .iter()
+        .enumerate()
         {
             // データオブジェクトの作成
             let input_data = InputData {
