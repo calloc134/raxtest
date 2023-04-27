@@ -34,7 +34,7 @@ $ raxtest -i (index.ymlのパス) -o (output.jsonのパス)
  - テストの初期化処理を行うことができる  
 ログイン処理など、テスト前に発声する初期化処理を自動化することができます。
  - テストの結果をjson形式で出力することができる  
-テストの結果をjson形式で出力することができるため、CI/CDツールに組み込みやすくなっています。
+json形式で出力することができるため、CI/CDツールに組み込みやすくなっています。
 
 ## index.ymlの書き方 / how to write index.yml
 
@@ -43,38 +43,47 @@ $ raxtest -i (index.ymlのパス) -o (output.jsonのパス)
 base_url: http://localhost
 data: json://data.json
 init:
-  - name: loginStep
-    path: api/auth/login
-    method: POST
-    body: init
+- name: ApiAuthLogin(POST)
+  path: /api/auth/login
+  method: POST
+  ref_data: ApiAuthLogin(POST)
+  option:
+    query: false
+    body: true
 
 categories:
-  no_login:
-    - name: apiall
-      path: api/profile/all
+  no_loginStep:
+    - name: ApiUserMe(GET)
+      path: /api/user/me
       method: GET
-      expect_status: 200
-    - name: ApiProfileMe_GET
-      path: /api/profile/me
-      method: GET
-      expect_status: 401
+      ref_data: no_login/ApiUserMe(GET)
+      option:
+        query: false
+        body: false
 
   loginStep:
-    login: loginStep
-    - name: ApiProfileMe_GET
-      path: /api/profile/me
-      method: GET
-      expect_status: 200
-    - name: ApiProfileMe_PUT
-      path: /api/profile/me
+    login: ApiAuthLogin(POST)
+    - name: ApiUserMe(PUT)
+      path: /api/user/me
       method: PUT
-      body: ApiProfileMe_PUT
-      expect_status: 200
+      ref_data: ApiAuthLogin(POST)/ApiUserMe(PUT)
+      option:
+        query: false
+        body: true
+    - name: ApiUserMe(DELETE)
+      path: /api/user/me
+      method: DELETE
+      ref_data: ApiAuthLogin(POST)/ApiUserMe(DELETE)
+      option:
+        query: false
+        body: false
     - name: ApiProfileScreenName_GET
       path: /api/profile/@{screenName}
       method: GET
-      query: ApiProfileScreenName_GET
-      expect_status: 200
+      ref_data: ApiAuthLogin(POST)/ApiUserMe(DELETE)
+      option:
+        query: true
+        body: false
 
 ```
 それぞれの項目の意味を以下に示します。
@@ -94,9 +103,10 @@ json形式のファイルを指定することができます。
 カテゴリのオプションは以下の通りです。
 
   - login: init内の参照するログイン情報のステップの名前
-  - steps: テストを行うステップ
+  - steps: テストを行うステップのシーケンス
 
-stepsは、シーケンスを用いながら複数のステップで指定します。
+loginで、init内からログイン情報(クッキー)を参照するステップの名前を指定します。
+stepsで、複数のステップを指定できます。
 
 ステップのオプション項目は以下の通りです。
 
@@ -113,20 +123,13 @@ stepsは、シーケンスを用いながら複数のステップで指定しま
   - method: リクエストのメソッド  
 リクエストのメソッドは、GET, POST, PUT, DELETEなどを指定できます。
 
-  - body: リクエストのボディ  
-リクエストのボディは、dataで指定したファイル内のデータを参照することができます。  
-ここで指定したデータを、リクエストのボディとしてjson形式で送信します。
+ - ref_data: リクエストのデータを参照する際のタグ  
+リクエストのデータを参照する際に使用するタグを指定します。
+ここで指定したタグは、bodyやqueryで使用することができます。
 
-  - query: リクエストのクエリ  
-リクエストのクエリは、dataで指定したファイル内のデータを参照することができます。  
-ここで指定したデータを、リクエストのクエリとしてjson形式で送信します。
+  - option: リクエストのオプション  
+ここでは、queryとbodyをデータから参照するかどうかを指定できます。
 
-  - expect_status: 期待するステータスコード  
-期待するステータスコードは、リクエストのレスポンスのステータスコードと比較します。  
-この値とレスポンスのステータスコードが一致しない場合、テストは失敗します。
-
-  - login: ログイン情報  
-init内のステップを参照し、ログイン情報を取得します。
 
 ## data.jsonの書き方 / how to write data.json
 
@@ -134,30 +137,50 @@ init内のステップを参照し、ログイン情報を取得します。
 
 ```json
 {
-    "init": {
-        "body": {
-            "screenName": "johndoe",
-            "password": "Password"
-        }
-    },
-    "ProfileUsername": {
-        "query": {
-            "name": "johndoe"
-        }
-    },
-    "Article": {
-        "body": {
-            "title": "テスト",
-            "body": "テストで投稿した記事です。"
-        }
+  "ApiAuthLogin(POST)": [
+    {
+      "body": {
+        "handle": "johndoe2",
+        "password": "Password123@"
+      },
+      "expect_status": 0
     }
+  ],
+  "ApiAuthLogin(POST)/ApiUserMe(GET)": [
+    {
+      "expect_status": 200
+    }
+  ],
+  "ApiAuthLogin(POST)/ApiUserMe(PUT)": [
+    {
+      "body": {
+        "bio": "じょんどえじょんどえ"
+      },
+      "expect_status": 200
+    },
+    {
+      "body": {
+        "screen_name": "じょんどえ2"
+      },
+      "expect_status": 200
+    },
+    {
+      "body": {
+        "hidden_comment": "じょんどえhidden"
+      },
+      "expect_status": 400
+    },
+    ...
+  ],
 }
+
 ```
 
 data.jsonは、json形式のファイルです。  
 このファイル内に、テストに使用するデータを格納します。  
-このデータは、index.yml内のbodyオプションとqueryオプションにて参照することができます。
+プロパティはbody, query, expect_statusが対応しており、使用するデータは複数格納することが可能です。  
 bodyオプションでは、`body`キーの値を、queryオプションでは、`query`キーの値を参照します。
+また、expect_statusオプションでは、`expect_status`キーの値を参照します。
 
 ## output.jsonの構成 / structure of output.json
 
@@ -168,29 +191,27 @@ bodyオプションでは、`body`キーの値を、queryオプションでは�
   "base_url": "http://localhost",
   "results": [
     {
-      "name": "apiall",
+      "name": "no_login/ApiUserMe(DELETE)[0]",
+      "category": "no_login",
       "status": "success",
-      "duration": 0.000048,
-      "message": "passed"
+      "duration": 0.0126284,
+      "message": "success (status: 401 Unauthorized, expect status: 401)"
     },
     {
-      "name": "apiProfileUsername",
+      "name": "no_login/ApiUserMe(GET)[0]",
+      "category": "no_login",
       "status": "success",
-      "duration": 0.0113897,
-      "message": "passed"
+      "duration": 0.0099064,
+      "message": "success (status: 401 Unauthorized, expect status: 401)"
     },
     {
-      "name": "isLogin",
+      "name": "no_login/ApiUserMe(PUT)[0]",
+      "category": "no_login",
       "status": "success",
-      "duration": 0.0034016,
-      "message": "passed"
+      "duration": 0.007595,
+      "message": "success (status: 401 Unauthorized, expect status: 401)"
     },
-    {
-      "name": "PostNewArticle",
-      "status": "failure",
-      "duration": 0.0000487,
-      "message": "failed (status: 400 Bad Request, expect status: 200)"
-    }
+    ...
   ]
 }
 ```
@@ -207,6 +228,9 @@ bodyオプションでは、`body`キーの値を、queryオプションでは�
 
   - name  
 ステップの名前です。
+
+ - category
+ステップの所属するカテゴリです。
   
   - status  
 ステップの結果を示します。
