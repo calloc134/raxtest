@@ -1,5 +1,3 @@
-# raxtest
-
 <p align="center">
   <img src="RAX_logo.png" alt="logo" width="200"/>
   <h1 align="center">raxtest</h1>
