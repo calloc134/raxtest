@@ -1,10 +1,7 @@
-# raxtest
-```
-    _____  _____  __  __  ____  _____  _____  ____ 
-    /  _  \/  _  \/  \/  \/    \/   __\/  ___>/    \
-    |  _  <|  _  |>-    -<\-  -/|   __||___  |\-  -/
-    \__|\_/\__|__/\__/\__/ |__| \_____/<_____/ |__|   
-```
+<p align="center">
+  <img src="RAX_logo.png" alt="logo" width="200"/>
+  <h1 align="center">raxtest</h1>
+</p>
 
 ![image](raxtest.output.svg)
 
