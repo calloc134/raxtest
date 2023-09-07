@@ -10,32 +10,32 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Easy to Use',
-    Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
+    title: 'Parallel Execution',
+    Svg: require('@site/static/img/undraw_not_found_re_bh2e.svg').default,
     description: (
       <>
-        Docusaurus was designed from the ground up to be easily installed and
-        used to get your website up and running quickly.
+        Speed up your test suite with parallel execution, 
+        ideal for CI/CD pipelines.
       </>
     ),
   },
   {
-    title: 'Focus on What Matters',
-    Svg: require('@site/static/img/undraw_docusaurus_tree.svg').default,
+    title: 'JSON Data Import/Export',
+    Svg: require('@site/static/img/undraw_elements_re_25t9.svg').default,
     description: (
       <>
-        Docusaurus lets you focus on your docs, and we&apos;ll do the chores. Go
-        ahead and move your docs into the <code>docs</code> directory.
+        Import test scenarios via JSON and export results in JSON format, 
+        perfect for data-driven testing and CI/CD integration.
       </>
     ),
   },
   {
-    title: 'Powered by React',
-    Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
+    title: 'OpenAPI Schema Support',
+    Svg: require('@site/static/img/undraw_good_team_re_hrvm.svg').default,
     description: (
       <>
-        Extend or customize your website layout by reusing React. Docusaurus can
-        be extended while reusing the same header and footer.
+        Generate tests directly from your OpenAPI schema, 
+        streamlining test creation and ensuring API specification compliance.
       </>
     ),
   },
