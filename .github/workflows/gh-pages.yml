@@ -46,7 +46,7 @@ jobs:
 
       - name: Build
         run: |
-          pnpm run docbuild
+          pnpm run build
         working-directory: docs
 
       - name: Upload artifact
