@@ -13,5 +13,8 @@ It is designed to be simple but powerful.
  - **JSON Data** import and export
  - Generate test cases from **openapi documents** in `openapi2raxtest` command
 
+## License
+  - MIT
+
 
 
