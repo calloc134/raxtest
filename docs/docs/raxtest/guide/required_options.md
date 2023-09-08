@@ -4,6 +4,12 @@ sidebar_position: 1
 
 # Required Options
 
+```yaml 
+base_url: http://localhost
+data: json://data.json
+(...)
+```
+
 ## base_url
 
 The base url of the api server.  
