@@ -10,90 +10,51 @@ Here is a complete example of a raxtest config file.
 ### config file (yaml)
 ```yaml
 base_url: http://localhost
-data: json://data.json
+data: json://out.json
 init:
-- name: ApiAuthLogin(POST)
-  path: /api/auth/login
-  method: POST
-  ref_data: ApiAuthLogin(POST)
-  option:
-    query: false
-    body: true
-
+- name: LoginStep
+  path: /api/auth/login
+  method: POST
+  ref_data: LoginData
+  option:
+    query: false
+    body: true
 categories:
-  no_loginStep:
-    - name: ApiUserMe(GET)
-      path: /api/user/me
-      method: GET
-      ref_data: no_login/ApiUserMe(GET)
-      option:
-        query: false
-        body: false
-
-  loginStep:
-    login: ApiAuthLogin(POST)
-    - name: ApiUserMe(PUT)
-      path: /api/user/me
-      method: PUT
-      ref_data: ApiAuthLogin(POST)/ApiUserMe(PUT)
-      option:
-        query: false
-        body: true
-    - name: ApiUserMe(DELETE)
-      path: /api/user/me
-      method: DELETE
-      ref_data: ApiAuthLogin(POST)/ApiUserMe(DELETE)
-      option:
-        query: false
-        body: false
-    - name: ApiProfileScreenName_GET
-      path: /api/profile/@{screenName}
-      method: GET
-      ref_data: ApiAuthLogin(POST)/ApiUserMe(DELETE)
-      option:
-        query: true
-        body: false
+  LoginCategory
+    login: LoginStep
+    steps:
+    - name: UpdateMyProfile
+      path: /api/profile/me
+      method: PUT
+      ref_data: MyProfileData
+      option:
+        query: false
+        body: true
 ```
 
 ### data file (json)
 
 ```json
 {
-  "ApiAuthLogin(POST)": [
-    {
-      "body": {
-        "handle": "johndoe2",
-        "password": "Password123@"
-      },
-      "expect_status": 0
-    }
-  ],
-  "ApiAuthLogin(POST)/ApiUserMe(GET)": [
-    {
-      "expect_status": 200
-    }
-  ],
-  "ApiAuthLogin(POST)/ApiUserMe(PUT)": [
-    {
-      "body": {
-        "bio": "john doe bio",
-      },
-      "expect_status": 200
-    },
-    {
-      "body": {
-        "screen_name": "jondoe@@2"
-      },
-      "expect_status": 200
-    },
-    {
-      "body": {
-        "hidden_comment": "john doe hidden comment"
-      },
-      "expect_status": 400
-    },
-    (...)
-  ],
+  "LoginStep": [
+    {
+      "body": {
+        "password": "dummy",
+        "screenName": "dummy"
+      },
+      "expect_status": 0
+    }
+  ],
+  "UpdateMyProfile": [
+    {
+      "body": {
+        "password": "dummy",
+        "screenName": "dummy",
+        "userName": "dummy"
+      },
+      "expect_status": 200
+    }
+  ],
 }
 ```
 
