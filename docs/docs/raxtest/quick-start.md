@@ -132,3 +132,5 @@ raxtest -i (config file path) -d (data file path)
   ]
 }
 ```
+
+![console](/img/console.svg)
