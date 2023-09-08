@@ -6,6 +6,8 @@ sidebar_position: 1
 
 Raxtest is an **asynchronous** api testing tool for RESTful APIs.
 
+Here is the [github repo](https://github.com/calloc134/raxtest).
+
 ## Acknowledgements
 
 Raxtest relies on the following open source projects:
